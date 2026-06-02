@@ -11,7 +11,7 @@ jobs:
 
     defaults:
       run:
-        working-directory: /home/lucas/sites/template-app
+        working-directory: /home/lucas/sites/message-app-ui
 
     steps:
       - name: Pull latest code
