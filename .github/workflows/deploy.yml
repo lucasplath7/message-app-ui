@@ -20,6 +20,8 @@ jobs:
           git reset --hard origin/main
 
       - name: Rebuild and restart container
+        env:
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
         run: |
           docker compose down
           docker compose up -d --build

@@ -1,0 +1,349 @@
+API Inventory for UI Development
+
+Authentication
+Every request (except health) must include:
+Authorization: Bearer <clerk_session_token>
+Clerk's frontend SDK provides this via await clerk.session.getToken().
+
+REST Endpoints
+Users
+
+POST /api/users/sync
+Call immediately after every Clerk sign-in to upsert the user into the DB.
+Request
+{
+  "email": "alice@example.com",
+  "firstName": "Alice",
+  "lastName": "Smith",
+  "imageUrl": "https://img.clerk.com/..."   // optional, nullable
+}
+Response 200
+{
+  "id": "user_2abc123",
+  "email": "alice@example.com",
+  "firstName": "Alice",
+  "lastName": "Smith",
+  "imageUrl": "https://img.clerk.com/..."
+}
+
+GET /api/users
+All users in the system, each with a live online flag backed by Redis.
+Response 200
+[
+  {
+    "id": "user_2abc123",
+    "email": "alice@example.com",
+    "firstName": "Alice",
+    "lastName": "Smith",
+    "imageUrl": "https://img.clerk.com/...",
+    "online": true
+  },
+  {
+    "id": "user_2xyz789",
+    "email": "bob@example.com",
+    "firstName": "Bob",
+    "lastName": "Jones",
+    "imageUrl": null,
+    "online": false
+  }
+]
+
+GET /api/users/:userId
+Single user lookup with live online status.
+Response 200
+{
+  "id": "user_2abc123",
+  "email": "alice@example.com",
+  "firstName": "Alice",
+  "lastName": "Smith",
+  "imageUrl": "https://img.clerk.com/...",
+  "online": true
+}
+Response 404
+{ "statusCode": 404, "message": "User not found" }
+
+Threads
+
+POST /api/threads
+Create a new thread. The authenticated user is automatically added as a participant alongside the recipients. The initialMessage is stored as the first message.
+Request
+{
+  "subject": "Weekend plans",
+  "recipientIds": ["user_2xyz789", "user_2def456"],
+  "initialMessage": "Hey, are you both free Saturday?"
+}
+Validation rules:
+subject — 1–500 characters
+recipientIds — 1–10 Clerk user IDs; must all exist in the DB
+initialMessage — non-empty string
+Response 201
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "subject": "Weekend plans",
+  "createdAt": "2026-06-02T14:00:00.000Z",
+  "updatedAt": "2026-06-02T14:00:00.000Z",
+  "createdBy": {
+    "id": "user_2abc123",
+    "email": "alice@example.com",
+    "firstName": "Alice",
+    "lastName": "Smith",
+    "imageUrl": "https://img.clerk.com/..."
+  },
+  "participants": [
+    { "id": "user_2abc123", "email": "alice@example.com", "firstName": "Alice", "lastName": "Smith", "imageUrl": "..." },
+    { "id": "user_2xyz789", "email": "bob@example.com",   "firstName": "Bob",   "lastName": "Jones",  "imageUrl": null },
+    { "id": "user_2def456", "email": "carol@example.com", "firstName": "Carol", "lastName": "Lee",    "imageUrl": "..." }
+  ],
+  "lastMessage": {
+    "id": "msg-uuid-here",
+    "body": "Hey, are you both free Saturday?",
+    "senderId": "user_2abc123",
+    "createdAt": "2026-06-02T14:00:00.000Z"
+  }
+}
+Errors
+// 400 — recipient not found in DB (must sync first)
+{ "statusCode": 400, "message": "Users not found: user_2zzz999" }
+
+// 400 — validation failure
+{ "statusCode": 400, "message": "Validation failed", "details": { ... } }
+Real-time side-effect: After creation the server publishes to Redis → Socket.io emits thread:new to every participant's personal room.
+
+GET /api/threads
+All threads the authenticated user participates in, sorted newest-activity-first. Includes a lastMessage preview per thread.
+Response 200
+[
+  {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "subject": "Weekend plans",
+    "createdAt": "2026-06-02T14:00:00.000Z",
+    "updatedAt": "2026-06-02T15:30:00.000Z",
+    "createdBy": { "id": "user_2abc123", "firstName": "Alice", "lastName": "Smith", "email": "...", "imageUrl": "..." },
+    "participants": [
+      { "id": "user_2abc123", "firstName": "Alice", "lastName": "Smith", "email": "...", "imageUrl": "..." },
+      { "id": "user_2xyz789", "firstName": "Bob",   "lastName": "Jones", "email": "...", "imageUrl": null }
+    ],
+    "lastMessage": {
+      "id": "msg-uuid",
+      "body": "Sounds great!",
+      "senderId": "user_2xyz789",
+      "createdAt": "2026-06-02T15:30:00.000Z"
+    }
+  }
+]
+
+GET /api/threads/:threadId
+Thread metadata and full participant list. Does not include messages — fetch those separately.
+Response 200
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "subject": "Weekend plans",
+  "createdAt": "2026-06-02T14:00:00.000Z",
+  "updatedAt": "2026-06-02T15:30:00.000Z",
+  "createdBy": { "id": "user_2abc123", "firstName": "Alice", "lastName": "Smith", "email": "...", "imageUrl": "..." },
+  "participants": [
+    { "id": "user_2abc123", "firstName": "Alice", "lastName": "Smith", "email": "...", "imageUrl": "..." },
+    { "id": "user_2xyz789", "firstName": "Bob",   "lastName": "Jones", "email": "...", "imageUrl": null }
+  ]
+}
+Errors
+{ "statusCode": 403, "message": "You are not a participant of this thread" }
+{ "statusCode": 404, "message": "Thread not found" }
+
+Messages
+
+GET /api/threads/:threadId/messages
+Messages for a thread, oldest-first. Supports cursor-based pagination for loading older messages.
+Query params
+Param
+Type
+Default
+Description
+limit
+integer 1–100
+50
+Number of messages to return
+before
+ISO 8601 datetime
+—
+Return messages with createdAt before this timestamp (for loading older pages)
+Example
+GET /api/threads/550e.../messages?limit=25
+GET /api/threads/550e.../messages?limit=25&before=2026-06-02T14:30:00.000Z
+Response 200
+[
+  {
+    "id": "msg-uuid-1",
+    "threadId": "550e8400-e29b-41d4-a716-446655440000",
+    "body": "Hey, are you both free Saturday?",
+    "createdAt": "2026-06-02T14:00:00.000Z",
+    "updatedAt": "2026-06-02T14:00:00.000Z",
+    "sender": {
+      "id": "user_2abc123",
+      "email": "alice@example.com",
+      "firstName": "Alice",
+      "lastName": "Smith",
+      "imageUrl": "https://img.clerk.com/..."
+    }
+  },
+  {
+    "id": "msg-uuid-2",
+    "threadId": "550e8400-e29b-41d4-a716-446655440000",
+    "body": "Sounds great!",
+    "createdAt": "2026-06-02T15:30:00.000Z",
+    "updatedAt": "2026-06-02T15:30:00.000Z",
+    "sender": {
+      "id": "user_2xyz789",
+      "email": "bob@example.com",
+      "firstName": "Bob",
+      "lastName": "Jones",
+      "imageUrl": null
+    }
+  }
+]
+Pagination pattern — when the returned array length equals limit, there are more messages. Fetch the next page using the createdAt of the first item in the current page as before.
+Errors
+{ "statusCode": 403, "message": "You are not a participant of this thread" }
+
+POST /api/threads/:threadId/messages
+Post a new message. The authenticated user must be a participant.
+Request
+{ "body": "Sounds great, see you then!" }
+Response 201
+{
+  "id": "msg-uuid-3",
+  "threadId": "550e8400-e29b-41d4-a716-446655440000",
+  "body": "Sounds great, see you then!",
+  "createdAt": "2026-06-02T16:00:00.000Z",
+  "updatedAt": "2026-06-02T16:00:00.000Z",
+  "sender": {
+    "id": "user_2abc123",
+    "email": "alice@example.com",
+    "firstName": "Alice",
+    "lastName": "Smith",
+    "imageUrl": "https://img.clerk.com/..."
+  }
+}
+Errors
+{ "statusCode": 403, "message": "You are not a participant of this thread" }
+Real-time side-effect: Server publishes to Redis → Socket.io emits thread:message:new to the thread's room.
+
+Socket.io
+Connection
+ws://localhost:3001
+The Socket.io client connects without a token. Identity is established via the user:connect event immediately after the connect event fires.
+
+Client → Server Events
+user:connect
+Must be emitted immediately after connect. Maps this socket to the Clerk user, joins the personal room, and marks the user online.
+socket.emit("user:connect", { userId: "user_2abc123" })
+No acknowledgement. The server will respond by emitting users:online back to this socket.
+
+thread:join
+Subscribe to real-time updates for a specific thread. Call when the user navigates into a thread view.
+socket.emit("thread:join", { threadId: "550e8400-e29b-41d4-a716-446655440000" })
+
+thread:leave
+Unsubscribe from a thread's updates. Call when the user navigates away.
+socket.emit("thread:leave", { threadId: "550e8400-e29b-41d4-a716-446655440000" })
+
+thread:typing:start
+Signal that the user has started composing a message in a thread. The indicator auto-expires server-side after 10 seconds if thread:typing:stop is never received (e.g. tab closed mid-compose).
+socket.emit("thread:typing:start", { threadId: "550e8400-e29b-41d4-a716-446655440000" })
+
+thread:typing:stop
+Signal that the user has stopped composing (sent, cleared, or blurred the input).
+socket.emit("thread:typing:stop", { threadId: "550e8400-e29b-41d4-a716-446655440000" })
+
+Server → Client Events
+users:online
+Emitted once to the connecting socket immediately after user:connect is processed. Contains the full set of currently online user IDs.
+socket.on("users:online", ({ userIds }) => {
+  // userIds: string[]  — e.g. ["user_2abc123", "user_2xyz789"]
+})
+
+user:status
+Broadcast to all connected sockets whenever any user goes online or offline.
+socket.on("user:status", ({ userId, online }) => {
+  // userId: string
+  // online: boolean
+})
+
+thread:new
+Emitted to each participant's personal room when a new thread is created (by any participant). Shape is identical to the POST /api/threads response body.
+socket.on("thread:new", (thread) => {
+  // thread: full thread object (same shape as POST /api/threads response)
+  // {
+  //   id, subject, createdAt, updatedAt,
+  //   createdBy: { id, firstName, lastName, email, imageUrl },
+  //   participants: [...],
+  //   lastMessage: { id, body, senderId, createdAt }
+  // }
+})
+
+thread:message:new
+Emitted to all sockets in a thread room when any participant posts a message. Shape matches the POST .../messages response body.
+socket.on("thread:message:new", ({ threadId, message }) => {
+  // threadId: string
+  // message: {
+  //   id, threadId, body, createdAt, updatedAt,
+  //   sender: { id, firstName, lastName, email, imageUrl }
+  // }
+})
+
+thread:typing
+Emitted to all sockets in a thread room whenever the typing state changes. Contains the full current list of composing users.
+socket.on("thread:typing", ({ threadId, typingUserIds }) => {
+  // threadId: string
+  // typingUserIds: string[]  — Clerk user IDs currently typing
+})
+When typingUserIds is empty the indicator should be hidden. When non-empty, cross-reference with your local user list to get display names.
+
+Suggested UI Connection Lifecycle
+App loads
+  → clerk.session.getToken() → POST /api/users/sync
+  → socket.connect()
+      → on "connect": socket.emit("user:connect", { userId })
+      → on "users:online": initialise presence state
+  → GET /api/users  (full user list + online flags)
+  → GET /api/threads  (thread list)
+
+User opens a thread
+  → GET /api/threads/:threadId/messages  (initial message load)
+  → socket.emit("thread:join", { threadId })
+  → on "thread:message:new": append message
+  → on "thread:typing": show/hide composing indicator
+
+User types in message input
+  → on first keystroke: socket.emit("thread:typing:start", { threadId })
+  → on input clear / blur / send: socket.emit("thread:typing:stop", { threadId })
+
+User sends message
+  → POST /api/threads/:threadId/messages
+  → socket.emit("thread:typing:stop", { threadId })
+  (the REST response is the source of truth; the socket event updates other participants)
+
+User navigates away from thread
+  → socket.emit("thread:leave", { threadId })
+
+App unmounts / sign-out
+  → socket.disconnect()  (server automatically cleans up presence + typing)
+
+Error Response Shape (all endpoints)
+{
+  "statusCode": 400,
+  "message": "Human-readable description",
+  "details": { }  // optional — present on validation failures
+}
+Code
+Meaning
+400
+Validation error or bad input
+401
+Missing or invalid Clerk token
+403
+Valid token but user is not a participant
+404
+Resource not found
+500
+Internal server error
