@@ -3,7 +3,7 @@ import { useDispatch, useSelector } from 'react-redux'
 import { clsx } from 'clsx'
 import { fetchMessages, sendMessage } from '../../store/actions/messagesActions.js'
 import { Avatar, Button, Spinner } from '../../components/basics/index.js'
-import { joinThread, leaveThread, emitTypingStart, emitTypingStop } from '../../store/services/socket.js'
+import { joinThread, emitTypingStart, emitTypingStop } from '../../store/services/socket.js'
 
 function formatMsgTime(dateStr) {
   if (!dateStr) return ''
@@ -106,7 +106,16 @@ export function ThreadViewContainer() {
   useEffect(() => {
     if (!selectedId) return
     joinThread(selectedId)
-    return () => leaveThread(selectedId)
+    return () => {
+      // Do NOT leaveThread — we stay in all rooms so the sidebar typing
+      // indicator keeps working for threads we're not currently viewing.
+      // However, if we were typing in this thread, stop the indicator now.
+      if (isTypingRef.current) {
+        clearTimeout(typingTimer.current)
+        isTypingRef.current = false
+        emitTypingStop(selectedId)
+      }
+    }
   }, [selectedId])
 
   // Fetch initial messages when thread selected

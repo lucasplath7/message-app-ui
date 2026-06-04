@@ -1,9 +1,13 @@
+import { useState } from 'react'
 import { Show, SignIn } from '@clerk/react'
+import { About } from './components/About/index.jsx'
 import { AppContainer } from './containers/App/AppContainer.jsx'
 
 function App() {
   return (
     <>
+      <About />
+
       <Show when="signed-out">
         <div className="flex items-center justify-center min-h-screen bg-neutral-50 dark:bg-neutral-950">
           <div className="flex flex-col items-center gap-6">

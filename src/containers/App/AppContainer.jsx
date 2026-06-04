@@ -5,7 +5,7 @@ import { syncUser } from '../../store/actions/authActions.js'
 import { fetchUsers } from '../../store/actions/usersActions.js'
 import { fetchThreads } from '../../store/actions/threadsActions.js'
 import { setTokenGetter } from '../../store/services/apiClient.js'
-import { initSocket, connectSocket, disconnectSocket } from '../../store/services/socket.js'
+import { initSocket, connectSocket, disconnectSocket, joinAllThreads } from '../../store/services/socket.js'
 import { ThreadListContainer } from '../ThreadList/ThreadListContainer.jsx'
 import { ThreadViewContainer } from '../ThreadView/ThreadViewContainer.jsx'
 import { NewThreadContainer } from '../NewThread/NewThreadContainer.jsx'
@@ -38,10 +38,16 @@ export function AppContainer() {
       connectSocket(syncedUser.id)
 
       // 4. Fetch all users and threads in parallel
-      await Promise.all([
+      const [, threads] = await Promise.all([
         dispatch(fetchUsers()),
         dispatch(fetchThreads()),
       ])
+
+      // 5. Join all thread socket rooms so sidebar typing indicators work
+      //    for every thread, not just the currently selected one.
+      if (threads?.length) {
+        joinAllThreads(threads.map(t => t.id))
+      }
 
       if (!cancelled) setBootstrapped(true)
     }

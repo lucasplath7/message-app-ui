@@ -43,6 +43,11 @@ export function joinThread(threadId) {
   socket?.emit('thread:join', { threadId })
 }
 
+/** Join all thread rooms at once (called on boot so sidebar typing works for every thread). */
+export function joinAllThreads(threadIds) {
+  threadIds.forEach(id => socket?.emit('thread:join', { threadId: id }))
+}
+
 export function leaveThread(threadId) {
   socket?.emit('thread:leave', { threadId })
 }
@@ -69,6 +74,8 @@ function attachListeners() {
   // Server → client: new thread created (participant receives via personal room)
   socket.on('thread:new', (thread) => {
     _dispatch?.(threadNewReceived(thread))
+    // Join the new thread's room immediately so sidebar typing indicators work
+    socket.emit('thread:join', { threadId: thread.id })
   })
 
   // Server → client: new message in a thread room

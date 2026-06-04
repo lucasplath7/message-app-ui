@@ -16,8 +16,10 @@ export const fetchThreads = () => async (dispatch) => {
   try {
     const threads = await fetchThreadsService()
     dispatch({ type: FETCH_THREADS_SUCCESS, payload: threads })
+    return threads
   } catch (err) {
     dispatch({ type: FETCH_THREADS_FAILURE, payload: err?.response?.data?.message || err.message })
+    return []
   }
 }
 

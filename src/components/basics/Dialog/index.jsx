@@ -5,7 +5,7 @@ import { Button } from '../Button/index.jsx'
  * Modal dialog with a backdrop.
  * Closes on Escape key and backdrop click.
  */
-export function Dialog({ open, onClose, title, children, footer }) {
+export function Dialog({ open, onClose, title, children, footer, panelClassName = '', panelStyle }) {
   const dialogRef = useRef(null)
 
   useEffect(() => {
@@ -32,7 +32,8 @@ export function Dialog({ open, onClose, title, children, footer }) {
       {/* Panel */}
       <div
         ref={dialogRef}
-        className="relative z-10 w-full max-w-md rounded-2xl bg-white dark:bg-neutral-900 shadow-2xl flex flex-col overflow-hidden"
+        style={panelStyle}
+        className={`relative z-10 w-full max-w-md rounded-2xl bg-white dark:bg-neutral-900 shadow-2xl flex flex-col overflow-hidden ${panelClassName}`}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-neutral-200 dark:border-neutral-800">
