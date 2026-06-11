@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { Show, SignIn } from '@clerk/react'
 import { About } from './components/About/index.jsx'
 import { AppContainer } from './containers/App/AppContainer.jsx'
